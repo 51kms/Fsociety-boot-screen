@@ -1,25 +1,17 @@
 #!/usr/bin/env python3
-import os
+import pygame
 import sys
 import time
-import random
-from threading import Thread
+import math
+from enum import Enum
 
-# FSociety Logo
-FSOCIETY_LOGO = """
-    ╔═══════════════╗
-    ║               ║
-    ║  ╭─────────╮  ║
-    ║  │ ◀ ◗ ◀    │  ║
-    ║  │          │  ║
-    ║  │  ▬▬▬─▬▬  │  ║
-    ║  │          │  ║
-    ║  ╰─────────╯  ║
-    ║               ║
-    ╚═══════════════╝
-    
-      fsociety
-"""
+class State(Enum):
+    LOADING = 1
+    FLICKERING = 2
+    INPUT = 3
+    RESULT = 4
+
+FSOCIETY_TEXT = "FSEC"
 
 # Loading messages
 LOADING_MESSAGES = [
@@ -92,134 +84,213 @@ LOADING_MESSAGES = [
     "Please restart your computer.",
 ]
 
-def clear_screen():
-    os.system('clear' if os.name == 'posix' else 'cls')
-
-def print_centered(text, screen_width, screen_height, y_offset):
-    """Print text centered horizontally"""
-    lines = text.split('\n')
-    for i, line in enumerate(lines):
-        x = (screen_width - len(line)) // 2
-        sys.stdout.write(f'\033[{y_offset + i};{x}H{line}')
-        sys.stdout.flush()
-
-def loading_animation(duration=8):
-    """Show loading messages with animation"""
-    start_time = time.time()
-    message_index = 0
+class BootScreen:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        pygame.display.set_caption("FSociety Boot")
+        self.width, self.height = self.screen.get_size()
+        self.clock = pygame.time.Clock()
+        
+        # Fonts
+        self.small_font = pygame.font.Font(None, 14)
+        self.logo_font = pygame.font.Font(None, 48)
+        self.text_font = pygame.font.Font(None, 32)
+        
+        # Colors
+        self.BLACK = (0, 0, 0)
+        self.RED = (255, 0, 0)
+        self.WHITE = (255, 255, 255)
+        self.GREEN = (0, 255, 0)
+        
+        # State
+        self.state = State.LOADING
+        self.messages = []
+        self.start_time = time.time()
+        self.loading_duration = 8
+        self.flickering_duration = 5
+        self.flicker_start = None
+        self.user_input = ""
+        self.result_message = ""
+        self.result_start = None
+        
+    def render_logo(self):
+        """Render the FSociety logo in the center"""
+        logo_x = self.width // 2 - 80
+        logo_y = self.height // 2 - 100
+        
+        # Draw white border around logo
+        border_rect = pygame.Rect(logo_x - 20, logo_y - 20, 200, 240)
+        pygame.draw.rect(self.screen, self.WHITE, border_rect, 3)
+        
+        # Simple face representation (smile/V logo)
+        face_center_x = logo_x + 80
+        face_center_y = logo_y + 80
+        
+        # Eyes
+        pygame.draw.circle(self.screen, self.WHITE, (face_center_x - 25, face_center_y - 20), 8)
+        pygame.draw.circle(self.screen, self.WHITE, (face_center_x + 25, face_center_y - 20), 8)
+        
+        # Smile/mouth
+        pygame.draw.arc(self.screen, self.WHITE, (face_center_x - 40, face_center_y, 80, 50), 0, 3.14, 4)
+        
+        # Render text below logo
+        text = self.logo_font.render(FSOCIETY_TEXT, True, self.WHITE)
+        text_rect = text.get_rect(center=(self.width // 2, logo_y + 200))
+        self.screen.blit(text, text_rect)
+        
+    def render_messages(self, alpha=255):
+        """Render the loading messages on the left side"""
+        x = 20
+        y = 30
+        
+        for msg in self.messages:
+            if msg == "":
+                y += 15
+            else:
+                # Alternate between red and white for error/warning messages
+                if "[ERROR]" in msg or "[WARN]" in msg or "KERNEL" in msg or "STOP CODE" in msg:
+                    color = self.RED
+                else:
+                    color = self.WHITE
+                
+                text_surface = self.small_font.render(msg, True, color)
+                text_surface.set_alpha(alpha)
+                self.screen.blit(text_surface, (x, y))
+                y += 18
     
-    while time.time() - start_time < duration:
-        if message_index < len(LOADING_MESSAGES):
-            msg = LOADING_MESSAGES[message_index]
-            sys.stdout.write(f'\033[{5 + message_index};5H{msg}\033[K')
-            sys.stdout.flush()
-            message_index += 1
-            time.sleep(0.08)
+    def update_loading(self):
+        """Update loading state"""
+        elapsed = time.time() - self.start_time
+        
+        # Add messages based on elapsed time
+        message_count = int((elapsed / self.loading_duration) * len(LOADING_MESSAGES))
+        message_count = min(message_count, len(LOADING_MESSAGES))
+        
+        self.messages = LOADING_MESSAGES[:message_count]
+        
+        if elapsed >= self.loading_duration:
+            self.state = State.FLICKERING
+            self.flicker_start = time.time()
+            self.messages = LOADING_MESSAGES.copy()
+    
+    def update_flickering(self):
+        """Update flickering state with continuous smooth flickering"""
+        elapsed = time.time() - self.flicker_start
+        
+        if elapsed >= self.flickering_duration:
+            self.state = State.INPUT
+    
+    def get_flicker_alpha(self):
+        """Get alpha value for smooth flickering"""
+        # Continuous smooth flickering using sine wave
+        time_val = time.time() * 4  # Control speed
+        alpha = int(128 + 127 * abs(math.sin(time_val)))
+        return alpha
+    
+    def render_input(self):
+        """Render input prompt"""
+        prompt_y = self.height - 100
+        
+        prompt_text = self.small_font.render("Enter key: ", True, self.WHITE)
+        self.screen.blit(prompt_text, (20, prompt_y))
+        
+        # Render input box
+        input_box = pygame.Rect(20, prompt_y + 25, 300, 25)
+        pygame.draw.rect(self.screen, self.WHITE, input_box, 2)
+        
+        # Render input text
+        if self.user_input:
+            input_display = self.small_font.render(self.user_input, True, self.WHITE)
+            self.screen.blit(input_display, (25, prompt_y + 28))
+        
+        # Render cursor
+        cursor_x = 25 + self.small_font.size(self.user_input)[0]
+        pygame.draw.line(self.screen, self.WHITE, (cursor_x, prompt_y + 28), (cursor_x, prompt_y + 40), 2)
+    
+    def render_result(self):
+        """Render result message"""
+        if self.user_input.lower() == "correct":
+            color = self.GREEN
+            text = "ACCESS GRANTED"
         else:
-            time.sleep(0.1)
+            color = self.RED
+            text = "ACCESS DENIED"
+        
+        result_surface = self.text_font.render(text, True, color)
+        result_rect = result_surface.get_rect(center=(self.width // 2, self.height - 80))
+        self.screen.blit(result_surface, result_rect)
     
-    return message_index
-
-def flicker_effect(lines_to_flicker, duration=3):
-    """Create flickering effect on specific lines"""
-    start_time = time.time()
-    flicker_colors = ['\033[91m', '\033[97m']  # Red and White
-    reset_color = '\033[0m'
+    def handle_events(self):
+        """Handle pygame events"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            
+            if event.type == pygame.KEYDOWN:
+                if self.state == State.INPUT:
+                    if event.key == pygame.K_RETURN:
+                        self.state = State.RESULT
+                        self.result_start = time.time()
+                    elif event.key == pygame.K_BACKSPACE:
+                        self.user_input = self.user_input[:-1]
+                    elif event.key == pygame.K_ESCAPE:
+                        return False
+                    else:
+                        # Add printable characters
+                        if event.unicode.isprintable():
+                            self.user_input += event.unicode
+        
+        return True
     
-    while time.time() - start_time < duration:
-        color = random.choice(flicker_colors)
-        for idx, line in enumerate(lines_to_flicker):
-            if random.random() > 0.5:
-                y = 5 + idx
-                sys.stdout.write(f'\033[{y};5H{color}{line}{reset_color}\033[K')
-                sys.stdout.flush()
-        time.sleep(0.1)
+    def update(self):
+        """Update game state"""
+        if self.state == State.LOADING:
+            self.update_loading()
+        elif self.state == State.FLICKERING:
+            self.update_flickering()
+        elif self.state == State.RESULT:
+            # Stay on result for 3 seconds
+            if time.time() - self.result_start >= 3:
+                return False
+        
+        return True
     
-    # Reset to normal after flickering
-    for idx, line in enumerate(lines_to_flicker):
-        y = 5 + idx
-        sys.stdout.write(f'\033[{y};5H\033[91m{line}\033[0m\033[K')
-        sys.stdout.flush()
-
-def main():
-    try:
-        # Hide cursor
-        os.system('echo -ne "\\033[?25l"')
+    def render(self):
+        """Render everything"""
+        self.screen.fill(self.BLACK)
         
-        # Clear and setup
-        clear_screen()
+        self.render_logo()
         
-        # Get terminal size
-        rows, cols = os.popen('stty size', 'r').read().split()
-        screen_height = int(rows)
-        screen_width = int(cols)
+        if self.state == State.LOADING:
+            self.render_messages()
+        elif self.state == State.FLICKERING:
+            alpha = self.get_flicker_alpha()
+            self.render_messages(alpha)
+        elif self.state == State.INPUT:
+            alpha = self.get_flicker_alpha()
+            self.render_messages(alpha)
+            self.render_input()
+        elif self.state == State.RESULT:
+            alpha = self.get_flicker_alpha()
+            self.render_messages(alpha)
+            self.render_result()
         
-        # Enter fullscreen mode
-        sys.stdout.write('\033[2J\033[H')
-        sys.stdout.flush()
+        pygame.display.flip()
+    
+    def run(self):
+        """Main loop"""
+        running = True
         
-        # Print logo centered
-        logo_start_y = (screen_height // 2) - 6
-        print_centered(FSOCIETY_LOGO, screen_width, screen_height, logo_start_y)
+        while running:
+            running = self.handle_events()
+            running = self.update() and running
+            self.render()
+            self.clock.tick(60)
         
-        # Start loading messages
-        sys.stdout.write('\033[5;5H')
-        sys.stdout.flush()
-        
-        # Simulate loading
-        loaded_count = loading_animation(duration=8)
-        
-        # Get the messages that were displayed
-        messages_displayed = LOADING_MESSAGES[:loaded_count]
-        
-        # Add "WRONG KEY" message
-        sys.stdout.write(f'\033[{5 + loaded_count + 2};5H\033[91mWRONG KEY\033[0m')
-        sys.stdout.flush()
-        
-        time.sleep(1)
-        
-        # Start flickering effect on the loaded messages
-        flicker_thread = Thread(target=flicker_effect, args=(messages_displayed, 3))
-        flicker_thread.start()
-        flicker_thread.join()
-        
-        # Show password prompt
-        prompt_y = 5 + loaded_count + 4
-        sys.stdout.write(f'\033[{prompt_y};5H')
-        sys.stdout.write('\033[97m')  # White text
-        sys.stdout.flush()
-        
-        # Show cursor for input
-        os.system('echo -ne "\\033[?25h"')
-        
-        sys.stdout.write('Enter key: ')
-        sys.stdout.flush()
-        user_input = input()
-        
-        # Hide cursor again
-        os.system('echo -ne "\\033[?25l"')
-        
-        if user_input.lower() == "correct":
-            sys.stdout.write(f'\033[{prompt_y + 2};5H\033[92mACCESS GRANTED\033[0m')
-        else:
-            sys.stdout.write(f'\033[{prompt_y + 2};5H\033[91mACCESS DENIED\033[0m')
-        
-        sys.stdout.flush()
-        time.sleep(2)
-        
-        # Cleanup
-        clear_screen()
-        os.system('echo -ne "\\033[?25h"')
-        
-    except KeyboardInterrupt:
-        os.system('echo -ne "\\033[?25h"')
-        clear_screen()
-        sys.exit(0)
-    except Exception as e:
-        os.system('echo -ne "\\033[?25h"')
-        clear_screen()
-        print(f"Error: {e}")
-        sys.exit(1)
+        pygame.quit()
+        sys.exit()
 
 if __name__ == "__main__":
-    main()
+    boot_screen = BootScreen()
+    boot_screen.run()
