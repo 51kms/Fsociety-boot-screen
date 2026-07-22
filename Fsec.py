@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 import pygame
 import sys
+import os
 import time
 import math
 from enum import Enum
+
+# Set SDL to use dummy video driver if needed
+os.environ['SDL_VIDEODRIVER'] = 'x11'
 
 class State(Enum):
     LOADING = 1
@@ -87,9 +91,20 @@ LOADING_MESSAGES = [
 class BootScreen:
     def __init__(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        
+        # Try to get fullscreen mode, fallback to large window
+        try:
+            info = pygame.display.Info()
+            self.width = info.current_w
+            self.height = info.current_h
+            self.screen = pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF)
+        except:
+            # Fallback to large window
+            self.width = 1920
+            self.height = 1080
+            self.screen = pygame.display.set_mode((self.width, self.height))
+        
         pygame.display.set_caption("FSociety Boot")
-        self.width, self.height = self.screen.get_size()
         self.clock = pygame.time.Clock()
         
         # Fonts
@@ -292,5 +307,9 @@ class BootScreen:
         sys.exit()
 
 if __name__ == "__main__":
-    boot_screen = BootScreen()
-    boot_screen.run()
+    try:
+        boot_screen = BootScreen()
+        boot_screen.run()
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
