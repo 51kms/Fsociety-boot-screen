@@ -4,13 +4,44 @@ import sys
 import os
 import time
 import math
+import subprocess
 from enum import Enum
 
-# Force GUI mode - detach from terminal
-if sys.stdout.isatty():
-    # Redirect output to null
-    sys.stdout = open(os.devnull, 'w')
-    sys.stderr = open(os.devnull, 'w')
+# Fork to background if running in terminal
+if os.isatty(sys.stdout.fileno()):
+    # Double fork to completely detach
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # Exit parent
+            sys.exit(0)
+    except OSError as err:
+        print(f"fork #1 failed: {err.errno} ({err.strerror})")
+        sys.exit(1)
+    
+    # Decouple from parent environment
+    os.chdir("/")
+    os.setsid()
+    os.umask(0)
+    
+    try:
+        pid = os.fork()
+        if pid > 0:
+            sys.exit(0)
+    except OSError as err:
+        print(f"fork #2 failed: {err.errno} ({err.strerror})")
+        sys.exit(1)
+    
+    # Redirect file descriptors
+    sys.stdout.flush()
+    sys.stderr.flush()
+    si = open('/dev/null', 'r')
+    so = open('/dev/null', 'a+')
+    se = open('/dev/null', 'a+')
+    
+    os.dup2(si.fileno(), sys.stdin.fileno())
+    os.dup2(so.fileno(), sys.stdout.fileno())
+    os.dup2(se.fileno(), sys.stderr.fileno())
 
 # Set SDL to use X11
 os.environ['SDL_VIDEODRIVER'] = 'x11'
@@ -104,8 +135,8 @@ class BootScreen:
         self.width = info.current_w
         self.height = info.current_h
         
-        # Create fullscreen display
-        self.screen = pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN)
+        # Create fullscreen display with no window frame
+        self.screen = pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN | pygame.NOFRAME)
         pygame.display.set_caption("FSociety Boot")
         
         # Hide mouse cursor
