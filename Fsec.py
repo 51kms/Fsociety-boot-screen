@@ -6,8 +6,15 @@ import time
 import math
 from enum import Enum
 
-# Set SDL to use dummy video driver if needed
+# Force GUI mode - detach from terminal
+if sys.stdout.isatty():
+    # Redirect output to null
+    sys.stdout = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w')
+
+# Set SDL to use X11
 os.environ['SDL_VIDEODRIVER'] = 'x11'
+os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
 class State(Enum):
     LOADING = 1
@@ -92,19 +99,18 @@ class BootScreen:
     def __init__(self):
         pygame.init()
         
-        # Try to get fullscreen mode, fallback to large window
-        try:
-            info = pygame.display.Info()
-            self.width = info.current_w
-            self.height = info.current_h
-            self.screen = pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF)
-        except:
-            # Fallback to large window
-            self.width = 1920
-            self.height = 1080
-            self.screen = pygame.display.set_mode((self.width, self.height))
+        # Get display info
+        info = pygame.display.Info()
+        self.width = info.current_w
+        self.height = info.current_h
         
+        # Create fullscreen display
+        self.screen = pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN)
         pygame.display.set_caption("FSociety Boot")
+        
+        # Hide mouse cursor
+        pygame.mouse.set_visible(False)
+        
         self.clock = pygame.time.Clock()
         
         # Fonts
@@ -303,13 +309,10 @@ class BootScreen:
             self.render()
             self.clock.tick(60)
         
+        pygame.mouse.set_visible(True)
         pygame.quit()
         sys.exit()
 
 if __name__ == "__main__":
-    try:
-        boot_screen = BootScreen()
-        boot_screen.run()
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    boot_screen = BootScreen()
+    boot_screen.run()
